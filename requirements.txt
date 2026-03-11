@@ -1,0 +1,8 @@
+# The Benji Protocol — COM5413
+# Add any libraries beyond the standard list here.
+# Run: pip freeze > requirements.txt before final submission.
+#
+# Pre-approved libraries (no addition needed):
+paramiko
+requests
+beautifulsoup4
