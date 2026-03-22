@@ -159,7 +159,7 @@ def check_port(target: str, port: int, timeout: float = 0.5) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def grab_banner(target: str, port: int, timeout: float = 0.5) -> str:
+def grab_banner(target: str, port: int, timeout: float = 0.9) -> str:
     """
     Connect to an open port and read the service banner.
 
@@ -175,20 +175,26 @@ def grab_banner(target: str, port: int, timeout: float = 0.5) -> str:
     # We know the port is open — check_port confirmed it.
     # connect() raises an exception on failure, which is fine here.
     # Any unexpected failure will be caught below.
-    sock.connect((target, port))
+    try:
+        sock.connect((target, port))
 
-    # The service has accepted the connection but may not have written
-    # its banner to the socket buffer yet. Give it a moment.
-    # Remove this sleep and banners will be empty. Consistently.
-    # You have been warned.
-    time.sleep(0.1)
+        # The service has accepted the connection but may not have written
+        # its banner to the socket buffer yet. Give it a moment.
+        # Remove this sleep and banners will be empty. Consistently.
+        # You have been warned.
+        time.sleep(0.1)
 
-    # recv(1024) reads up to 1024 bytes. Most banners are much shorter.
-    # decode('utf-8', errors='ignore') — some services include non-UTF-8 bytes.
-    # errors='ignore' discards them silently rather than raising UnicodeDecodeError.
-    # .strip() removes the \r\n that FTP and friends "helpfully" append.
-    banner = sock.recv(1024)
-    sock.close()
+        # recv(1024) reads up to 1024 bytes. Most banners are much shorter.
+        # decode('utf-8', errors='ignore') — some services include non-UTF-8 bytes.
+        # errors='ignore' discards them silently rather than raising UnicodeDecodeError.
+        # .strip() removes the \r\n that FTP and friends "helpfully" append.
+        banner = sock.recv(1024)
+
+    except (socket.timeout, OSError):
+        banner = b""  # bytes literal for empty banner. decode() below turns it into an empty string.
+
+    finally:
+        sock.close()
 
     return banner.decode("utf-8", errors="ignore").strip()
 
