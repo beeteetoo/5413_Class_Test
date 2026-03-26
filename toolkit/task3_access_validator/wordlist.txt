@@ -1,0 +1,10 @@
+password123
+admin
+
+letmein
+pässwörd
+
+msfadmin
+wrongagain
+
+vagrant
