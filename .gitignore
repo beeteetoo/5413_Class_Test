@@ -430,3 +430,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# =============================================================================
+# Benji Protocol — project-specific
+# =============================================================================
+
+# Generated tool output — recreate by running the tools against a target
+*.csv
+*.json
+passwd.txt
+
+# Runtime / captured logs — transient, never commit
+*.log
+
+# Project virtual environment (custom name)
+vulnra-venv/
+
+# VS Code workspace settings
+.vscode/
+

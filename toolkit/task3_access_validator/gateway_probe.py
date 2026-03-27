@@ -1,13 +1,29 @@
 #!/usr/bin/env python3
 
 import argparse
+import csv
 import ftplib
 import socket
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import paramiko
+
+
+def _local_ip(target: str, port: int) -> str:
+    """Return the local source IP used to reach target:port.
+
+    Uses a UDP socket — no packet is actually sent.
+    Falls back to 'unknown' if the host is unreachable.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((target, port))
+            return s.getsockname()[0]
+    except OSError:
+        return "unknown"
 
 
 # adding shortcuts -p or --ports
@@ -35,6 +51,12 @@ def parse_arguments():
         type=int,
         default=None,
         help="Target port (default: 21 for FTP, 22 for SSH)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("attempts.csv"),
+        help="Write attempt log to this CSV file (default: attempts.csv)",
     )
     return parser.parse_args()
 
@@ -130,15 +152,50 @@ def attempt_ssh(host: str, port: int, user: str, password: str) -> bool:
         client.close()
 
 
-def run_credential_test(host, port, user, passwords, attempt_fn):
+def run_credential_test(host, port, user, passwords, attempt_fn, output_path=None):
     total = len(passwords)
-    for i, password in enumerate(passwords, start=1):
-        print(f"[*] Attempt {i}/{total}: {user}:{password}")
+    source = _local_ip(host, port)
 
-        if attempt_fn(host, port, user, password):
-            return password
+    csv_file = None
+    writer = None
+    if output_path is not None:
+        write_header = not output_path.exists() or output_path.stat().st_size == 0
+        csv_file = output_path.open("a", newline="", encoding="utf-8")
+        writer = csv.DictWriter(
+            csv_file,
+            fieldnames=["timestamp", "user", "password", "result", "source"],
+        )
+        if write_header:
+            writer.writeheader()
 
-        time.sleep(0.1)
+    try:
+        for i, password in enumerate(passwords, start=1):
+            print(f"[*] Attempt {i}/{total}: {user}:{password}")
+
+            success = attempt_fn(host, port, user, password)
+            result = "SUCCESS" if success else "FAIL"
+
+            if writer:
+                writer.writerow(
+                    {
+                        "timestamp": datetime.now(timezone.utc).strftime(
+                            "%Y-%m-%dT%H:%M:%S"
+                        ),
+                        "user": user,
+                        "password": password,
+                        "result": result,
+                        "source": source,
+                    }
+                )
+                csv_file.flush()
+
+            if success:
+                return password
+
+            time.sleep(0.1)
+    finally:
+        if csv_file:
+            csv_file.close()
 
     return None
 
@@ -165,14 +222,15 @@ def main():
         attempt_fn = attempt_ssh
 
     # Run the credential test
-    print(f"[*] Target: {args.target}:{args.port}")
-    print(f"[*] Service: {args.service}")
-    print(f"[*] User: {args.user}")
+    print(f"[*] Target:   {args.target}:{args.port}")
+    print(f"[*] Service:  {args.service}")
+    print(f"[*] User:     {args.user}")
     print(f"[*] Wordlist: {len(passwords)} entries")
+    print(f"[*] Output:   {args.output}")
     print()
 
     result = run_credential_test(
-        args.target, args.port, args.user, passwords, attempt_fn
+        args.target, args.port, args.user, passwords, attempt_fn, args.output
     )
 
     if result:
