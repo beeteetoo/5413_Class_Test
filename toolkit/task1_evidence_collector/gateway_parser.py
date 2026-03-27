@@ -62,7 +62,8 @@ PROFTPD_LOGIN_FAILED = re.compile(
 )
 
 FAILED_PASSWORD = re.compile(
-    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"  # ISO 8601 timestamp
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"  # ISO 8601 timestamp
+    r"|[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})"  # or syslog timestamp
     r".*?"  # skip to anchor (non-greedy)
     r"Failed password for "  # literal anchor
     r"(?:invalid user )?"  # optional prefix (non-capturing)
@@ -72,7 +73,8 @@ FAILED_PASSWORD = re.compile(
 )
 
 INVALID_USER = re.compile(
-    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"  # ISO 8601 timestamp
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"  # ISO 8601 timestamp
+    r"|[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})"  # or syslog timestamp
     r".*?"  # skip to keyword (non-greedy)
     r"(?:Connection closed by |)"  # optional prefix phrase
     r"[Ii]nvalid user "  # case-insensitive variant
@@ -81,9 +83,13 @@ INVALID_USER = re.compile(
     r"(?P<ip>\d{1,3}(?:\.\d{1,3}){3})"  # IP address
 )
 
-# Order matters: PROFTPD_LOGIN_FAILED is tried first because the gateway lab
-# target is Metasploitable 3 running ProFTPD. SSH patterns follow.
-PATTERNS = [PROFTPD_LOGIN_FAILED, FAILED_PASSWORD, INVALID_USER]
+# Order matters: ProFTPD is checked first, then SSH signatures.
+# Each tuple describes: (service, event_type, compiled_pattern)
+PATTERNS = [
+    ("proftpd", "ftp_login_failed", PROFTPD_LOGIN_FAILED),
+    ("sshd", "ssh_failed_password", FAILED_PASSWORD),
+    ("sshd", "ssh_invalid_user", INVALID_USER),
+]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,15 +169,16 @@ def parse_log(file_path: str) -> list[dict]:
     """Read a log file and extract failed authentication attempts.
 
     Tries each pattern in PATTERNS against every line. On the first match,
-    extracts timestamp, IP address, and username. De-duplicates on the
-    (timestamp, ip, username) tuple before adding to results.
+    extracts timestamp, IP address, username, and attack metadata.
+    De-duplicates on the (timestamp, ip, username, service, event_type)
+    tuple before adding to results.
 
     Args:
         file_path: Path to the log file (string or Path-like).
 
     Returns:
         A list of dicts, one per unique event.
-        Each dict has keys: timestamp, ip_address, username.
+        Each dict has keys: timestamp, ip_address, username, service, event_type.
     """
     path = Path(file_path)
 
@@ -184,13 +191,15 @@ def parse_log(file_path: str) -> list[dict]:
 
     with path.open(encoding="utf-8", errors="ignore") as f:
         for line in f:
-            for pattern in PATTERNS:
+            for service, event_type, pattern in PATTERNS:
                 m = pattern.search(line)
                 if m:
                     record_key = (
                         normalize_timestamp(m.group("timestamp")),
                         m.group("ip"),
                         m.group("username"),
+                        service,
+                        event_type,
                     )
 
                     if record_key not in seen:
@@ -200,6 +209,8 @@ def parse_log(file_path: str) -> list[dict]:
                                 "timestamp": record_key[0],
                                 "ip_address": record_key[1],
                                 "username": record_key[2],
+                                "service": record_key[3],
+                                "event_type": record_key[4],
                             }
                         )
 
@@ -217,16 +228,13 @@ def write_csv(records: list[dict], output_path: str) -> None:
     """Write extracted records to a CSV file.
 
     Args:
-        records:     List of dicts with keys: timestamp, ip_address, username.
+        records:     List of dicts with keys: timestamp, ip_address, username,
+                     service, event_type.
         output_path: Path to the output CSV file (string or Path-like).
     """
     path = Path(output_path)
 
-    # BUG FIX: fieldnames must exactly match the dict keys returned by parse_log.
-    # Original code used ["Timestamp", "IP_Address", "User_Account"] — capitalised
-    # — which did not match the lowercase keys in the record dicts. DictWriter
-    # would raise ValueError on writerows(). Fixed to match parse_log's keys.
-    fieldnames = ["timestamp", "ip_address", "username"]
+    fieldnames = ["timestamp", "ip_address", "username", "service", "event_type"]
 
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
