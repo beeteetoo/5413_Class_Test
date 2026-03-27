@@ -73,3 +73,14 @@ pytest field_tests/ -v
 | `w3` | Task 3 complete — tests passing |
 | `w4` | Task 4 complete — tests passing |
 | `hunt-final` | Vulnerability Hunt submission — NO COMMITS AFTER THIS TAG |
+
+
+
+Here are other users in the system
+Username Password Admin Status
+leia_organa help_me_obiwan Yes
+luke_skywalker like_my_father_beforeme Yes
+han_solo nerf_herder Yes
+artoo_detoo b00p_b33p No
+c_three_pio Pr0t0c07 No
+ben_kenobi thats_no_m00n No
